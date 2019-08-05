@@ -12,17 +12,17 @@ import android.view.SurfaceHolder;
  */
 public class XPlay extends GLSurfaceView implements Runnable, SurfaceHolder.Callback {
 
-    public XPlay(Context context) {
-        super(context);
-    }
+    private IHandler iHandler;
 
     public XPlay(Context context, AttributeSet attrs) {
         super(context, attrs);
+        iHandler = new IHandler();
     }
 
     @Override
     public void run() {
-        Open("/sdcard/1080.mp4", getHolder().getSurface());
+//        Open("/sdcard/1080.mp4", getHolder().getSurface());
+        iHandler.play("/sdcard/1080.mp4",getHolder().getSurface());
     }
 
     @Override
@@ -32,7 +32,6 @@ public class XPlay extends GLSurfaceView implements Runnable, SurfaceHolder.Call
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
-        super.surfaceChanged(holder, format, w, h);
     }
 
     @Override
@@ -41,4 +40,5 @@ public class XPlay extends GLSurfaceView implements Runnable, SurfaceHolder.Call
     }
 
     public native void Open(String url, Object surface);
+
 }

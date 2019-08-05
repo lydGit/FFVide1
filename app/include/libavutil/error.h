@@ -41,7 +41,7 @@
 #else
 /* Some platforms have E* and errno already negated. */
 #define AVERROR(e) (e)
-#define AVUNERROR(e) (e)
+#define AVUNERROR(e) (logE)
 #endif
 
 #define FFERRTAG(a, b, c, d) (-(int)MKTAG(a, b, c, d))

@@ -1891,7 +1891,7 @@ typedef struct AVFormatContext {
      *                semantics as in avio_open2()
      * @return 0 on success, a negative AVERROR code on failure
      *
-     * @note Certain muxers and demuxers do nesting, i.e. they open one or more
+     * @note Certain muxers and demuxers do nesting, i.logE. they open one or more
      * additional internal format contexts. Thus the AVFormatContext pointer
      * passed to this callback may be different from the one facing the caller.
      * It will, however, have the same 'opaque' field.

@@ -18,11 +18,6 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         // Example of a call to a native method
-        TextView tv = (TextView) findViewById(R.id.sample_text);
-//        Open("/sdcard/1080.mp4",this);
-        Log.e("lyd"," ---------- Open ------------- ");
-        tv.setText(stringFromJNI());
-        Log.e("lyd"," ---------- Close ------------- ");
     }
 
     /**
@@ -30,7 +25,5 @@ public class MainActivity extends AppCompatActivity {
      * which is packaged with this application.
      */
     public native String stringFromJNI();
-
-    public native boolean Open(String url,Object handle);
 
 }

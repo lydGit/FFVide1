@@ -23,16 +23,19 @@
 *******************************************************************************/
 //！！！！！！！！！ 加群23304930下载代码和交流
 
-
 #include <jni.h>
 #include <string>
 #include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,"testff",__VA_ARGS__)
 
 extern "C"{
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/jni.h>
+#include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 }
 #include<iostream>
 using namespace std;
@@ -66,7 +69,16 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
         JNIEnv *env,
         jobject /* this */) {
     std::string hello = "Hello from C++ ";
+    // TODO
     hello += avcodec_configuration();
+    return env->NewStringUTF(hello.c_str());
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_lyd_ffvide1_XPlay_Open(JNIEnv *env, jobject instance, jstring url_, jobject surface) {
+    const char *path = env->GetStringUTFChars(url_, 0);
+
     //初始化解封装
     av_register_all();
     //初始化网络
@@ -76,13 +88,12 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
 
     //打开文件
     AVFormatContext *ic = NULL;
-    char path[] = "/sdcard/1080.mp4";
     //char path[] = "/sdcard/video.flv";
     int re = avformat_open_input(&ic,path,0,0);
     if(re != 0)
     {
         LOGW("avformat_open_input failed!:%s",av_err2str(re));
-        return env->NewStringUTF(hello.c_str());
+        return;
     }
     LOGW("avformat_open_input %s success!",path);
     //获取流信息
@@ -137,7 +148,7 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
     if(!codec)
     {
         LOGW("avcodec_find failed!");
-        return env->NewStringUTF(hello.c_str());
+        return;
     }
     //解码器初始化
     AVCodecContext *vc = avcodec_alloc_context3(codec);
@@ -151,7 +162,7 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
     if(re != 0)
     {
         LOGW("avcodec_open2 video failed!");
-        return env->NewStringUTF(hello.c_str());
+        return;
     }
 
     //////////////////////////////////////////////////////////
@@ -163,9 +174,9 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
     if(!acodec)
     {
         LOGW("avcodec_find failed!");
-        return env->NewStringUTF(hello.c_str());
+        return;
     }
-    //解码器初始化
+    //音频解码器初始化
     AVCodecContext *ac = avcodec_alloc_context3(acodec);
     avcodec_parameters_to_context(ac,ic->streams[audioStream]->codecpar);
     ac->thread_count = 8;
@@ -174,13 +185,45 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
     if(re != 0)
     {
         LOGW("avcodec_open2  audio failed!");
-        return env->NewStringUTF(hello.c_str());
+        return;
     }
     //读取帧数据
     AVPacket *pkt = av_packet_alloc();
     AVFrame *frame = av_frame_alloc();
     long long start = GetNowMs();
     int frameCount = 0;
+
+
+    //初始化像素格式转换的上下文
+    SwsContext *vctx = NULL;
+    int outWidth = 1280;
+    int outHeight = 721;
+    char *rgb = new char[1920*1080*4];
+    char *pcm = new char[48000*4*2];
+
+    //音频重采样上下文初始化
+    SwrContext *actx = swr_alloc();
+    actx = swr_alloc_set_opts(actx,
+                              av_get_default_channel_layout(2),
+                              AV_SAMPLE_FMT_S16,ac->sample_rate,
+                              av_get_default_channel_layout(ac->channels),
+                              ac->sample_fmt,ac->sample_rate,
+                              0,0 );
+    re = swr_init(actx);
+    if(re != 0)
+    {
+        LOGW("swr_init failed!");
+    }
+    else
+    {
+        LOGW("swr_init success!");
+    }
+
+    //显示窗口初始化
+    ANativeWindow *nwin = ANativeWindow_fromSurface(env,surface);
+    ANativeWindow_setBuffersGeometry(nwin,outWidth,outHeight,WINDOW_FORMAT_RGBA_8888);
+    ANativeWindow_Buffer wbuf;
+
     for(;;)
     {
         //超过三秒
@@ -200,14 +243,6 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
             av_seek_frame(ic,videoStream,pos,AVSEEK_FLAG_BACKWARD|AVSEEK_FLAG_FRAME );
             continue;
         }
-        //只测试视频
-        /*if(pkt->stream_index !=videoStream)
-        {
-            continue;
-        }*/
-        //LOGW("stream = %d size =%d pts=%lld flag=%d",
-        //     pkt->stream_index,pkt->size,pkt->pts,pkt->flags
-        //);
 
         AVCodecContext *cc = vc;
         if(pkt->stream_index == audioStream)
@@ -224,6 +259,7 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
             LOGW("avcodec_send_packet failed!");
             continue;
         }
+
         for(;;)
         {
             re = avcodec_receive_frame(cc,frame);
@@ -237,6 +273,53 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
             if(cc == vc)
             {
                 frameCount++;
+                vctx = sws_getCachedContext(vctx,
+                                            frame->width,
+                                            frame->height,
+                                            (AVPixelFormat)frame->format,
+                                            outWidth,
+                                            outHeight,
+                                            AV_PIX_FMT_RGBA,
+                                            SWS_FAST_BILINEAR,
+                                            0,0,0
+                );
+                if(!vctx)
+                {
+                    LOGW("sws_getCachedContext failed!");
+                }
+                else
+                {
+                    uint8_t *data[AV_NUM_DATA_POINTERS] = {0};
+                    data[0] =(uint8_t *)rgb;
+                    int lines[AV_NUM_DATA_POINTERS] = {0};
+                    lines[0] = outWidth * 4;
+                    int h = sws_scale(vctx,
+                                      (const uint8_t **)frame->data,
+                                      frame->linesize,0,
+                                      frame->height,
+                                      data,lines);
+                    LOGW("sws_scale = %d",h);
+                    if(h > 0)
+                    {
+                        ANativeWindow_lock(nwin,&wbuf,0);
+                        uint8_t *dst = (uint8_t*)wbuf.bits;
+                        memcpy(dst,rgb,outWidth*outHeight*4);
+                        ANativeWindow_unlockAndPost(nwin);
+                    }
+                }
+
+            }
+            else //音频
+            {
+                uint8_t *out[2] = {0};
+                out[0] = (uint8_t*) pcm;
+
+                //音频重采样
+                int len = swr_convert(actx,out,
+                                      frame->nb_samples,
+                                      (const uint8_t**)frame->data,
+                                      frame->nb_samples);
+                LOGW("swr_convert = %d",len);
             }
 
         }
@@ -245,38 +328,25 @@ Java_aplay_testffmpeg_MainActivity_stringFromJNI(
 
 
     }
+    delete rgb;
+    delete pcm;
 
 
 
     //关闭上下文
     avformat_close_input(&ic);
-    return env->NewStringUTF(hello.c_str());
+
+
+
+    env->ReleaseStringUTFChars(url_, path);
 }
+
 extern "C"
-JNIEXPORT jboolean JNICALL
-Java_aplay_testffmpeg_MainActivity_Open(JNIEnv *env, jobject instance, jstring url_,
-                                        jobject handle) {
-    const char *url = env->GetStringUTFChars(url_, 0);
-
-    // TODO
-    FILE *fp = fopen(url,"rb");
-    if(!fp)
-    {
-        LOGW("File %s open failed!",url);
-    }
-    else
-    {
-        LOGW("File %s open succes!",url);
-        fclose(fp);
-    }
-    env->ReleaseStringUTFChars(url_, url);
-    return true;
-}extern "C"
-JNIEXPORT void JNICALL
-Java_com_lyd_ffvide1_XPlay_Open(JNIEnv *env, jobject instance, jstring url_, jobject surface) {
-    const char *url = env->GetStringUTFChars(url_, 0);
+JNIEXPORT jstring JNICALL
+Java_com_lyd_ffvide1_MainActivity_stringFromJNI(JNIEnv *env, jobject instance) {
 
     // TODO
 
-    env->ReleaseStringUTFChars(url_, url);
+
+    return env->NewStringUTF("");
 }
